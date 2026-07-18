@@ -397,7 +397,7 @@ def index():
 
     <div id="interval-right">
         <a id="notice-link" class="pc-like-button">注意事項▼</a>
-        <a id="pc-link" href="https://japan-stock-chart.onrender.com/">スマホ画面</a>
+        <a id="pc-link" href="https://j-chart-pc.onrender.com/">スマホ画面</a>
     </div>
 </div>
 
