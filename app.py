@@ -7,10 +7,12 @@ import requests
 
 app = Flask(__name__)
 
-JPX_CSV_URL = "https://www.jpx.co.jp/markets/statistics-equities/misc/tvdivq0000001vg2-att/data_j.xls"
-LOCAL_CSV = "jpx_list.xls"
 
-NIKKEI225_URL = "https://indexes.nikkei.co.jp/nkave/index/component?idx=nk225"
+
+
+# ✅ 株探から銘柄を取得する新しい設定
+LOCAL_CSV = "jpx_list.xlsx"
+NIKKEI225_URL = "https://nikkei.co.jp"
 
 
 def update_jpx_list():
@@ -21,37 +23,104 @@ def update_jpx_list():
         if mtime == today:
             return
 
-    print("JPX銘柄一覧をダウンロード中...")
-    r = requests.get(JPX_CSV_URL)
-    r.raise_for_status()
-    with open(LOCAL_CSV, "wb") as f:
-        f.write(r.content)
-    print("JPX銘柄一覧更新完了")
+    print("代替ソース（株探）から東証上場銘柄の一覧を取得中...")
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
+
+    all_stocks = []
+    page = 1
+
+    try:
+        while True:
+            url = "https://kabutan.jp"
+            params = {"page": page}
+
+            res = requests.get(url, headers=headers, params=params, timeout=10)
+            res.raise_for_status()
+
+            soup = BeautifulSoup(res.text, "html.parser")
+
+            table = soup.find("table", class_="stocks")
+            if not table:
+                break
+
+            rows = table.find_all("tr")[1:]
+            if not rows:
+                break
+
+            for row in rows:
+                cols = row.find_all("td")
+                if len(cols) >= 3:
+                    # ✅ 各列からテキストを正しく抽出するように修正
+                    code = cols[0].text.strip()
+                    name = cols[1].text.strip()
+                    market = cols[2].text.strip()
+
+                    all_stocks.append(
+                        {
+                            "コード": code,
+                            "銘柄名": name,
+                            "市場・商品区分": market,
+                            "17業種区分": "その他",
+                        }
+                    )
+
+            print(f"{page}ページ目を取得完了... (現在 {len(all_stocks)} 銘柄)")
+            page += 1
+            time.sleep(0.5)
+
+            if page > 60:
+                break
+
+        if not all_stocks:
+            raise Exception("銘柄データを1件も取得できませんでした。")
+
+        df = pd.DataFrame(all_stocks)
+        df.to_excel(LOCAL_CSV, index=False)
+        print("銘柄一覧の代替作成が完了しました。")
+
+    except Exception as e:
+        print(f"⚠️ 代替データの取得中にエラーが発生しました: {e}")
 
 
 def load_jpx_list():
     update_jpx_list()
 
-    df = pd.read_excel(LOCAL_CSV)
+    if os.path.exists(LOCAL_CSV):
+        df = pd.read_excel(LOCAL_CSV)
+    elif os.path.exists("jpx_list.xls"):
+        df = pd.read_excel("jpx_list.xls")
+    else:
+        raise FileNotFoundError(
+            "銘柄リストファイルが見つかりません。ネット接続を確認してください。"
+        )
 
-    df = df.rename(columns={
-        "コード": "code",
-        "銘柄名": "name",
-        "市場・商品区分": "market",
-        "17業種区分": "sector17"
-    })
+    df = df.rename(
+        columns={
+            "コード": "code",
+            "銘柄名": "name",
+            "市場・商品区分": "market",
+            "17業種区分": "sector17",
+        }
+    )
 
     df["code"] = df["code"].astype(str).str.zfill(4)
     df["sector17"] = df["sector17"].astype(str).str.strip()
 
     df["sector17"] = df["sector17"].replace(
-        ["", "_", "-", "‐", "–", "—", "None", "nan", "NaN", "　"],
-        "その他"
+        ["", "_", "-", "‐", "–", "—", "None", "nan", "NaN", "　"], "その他"
     )
 
     df = df.sort_values(by="code", ascending=True)
 
     return df[["code", "name", "market", "sector17"]]
+
+
+
+
+
 
 
 from bs4 import BeautifulSoup
@@ -397,7 +466,7 @@ def index():
 
     <div id="interval-right">
         <a id="notice-link" class="pc-like-button">注意事項▼</a>
-        <a id="pc-link" href="https://j-chart-sma.onrender.com/">スマホ画面</a>
+        <a id="pc-link" href="https://japan-stock-chart.onrender.com/">スマホ画面</a>
     </div>
 </div>
 
